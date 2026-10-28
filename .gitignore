@@ -6,3 +6,15 @@ __pycache__/
 /dist/
 .env
 /received/
+
+# ---- 本机专属，不进版本库 ----
+# 你自己的教室配置（含内网地址），用 classrooms.conf.example 当模板
+/classrooms.conf
+# 换教室时自动生成的配置缓存 + 网卡备份 + 上次填过的 IP
+/configs/
+# 修复前的坏文件备份（二进制，没有参考价值）
+/_backup_broken/
+# 各种自动备份
+*.bak-*
+# 推送时临时生成的凭据文件（万一路径解析出错落到这里，别让它进版本库）
+*.cred

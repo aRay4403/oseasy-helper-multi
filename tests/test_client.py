@@ -1,28 +1,21 @@
 import struct
 import unittest
 
-from oseasy_helper.client import login_packet, message, thumbnail_reply, directory_reply
+from oseasy_helper.client import login_packet, message, thumbnail_reply
 
 
 class ClientTests(unittest.TestCase):
-    def test_directory_response_layout_and_no_other_operations(self):
-        reply = directory_reply(dict(command=87, extra=1), r'C:\received')
-        self.assertEqual(struct.unpack_from('<IIIII', reply),
-                         (0x285c0, 88, 0, 0, 0x285b0))
-        body = reply[20:]
-        self.assertEqual(len(body), 0x285b0)
-        self.assertEqual(body[:0x283a8], bytes(0x283a8))
-        self.assertEqual(body[0x283a8:].decode('utf-16-le').rstrip('\0'), r'C:\received')
-        self.assertIsNone(directory_reply(dict(command=87, extra=2), r'C:\received'))
-        self.assertIsNone(directory_reply(dict(command=16, extra=1), r'C:\received'))
-
-    def test_mock_thumbnail_only_answers_observed_request(self):
+    def test_thumbnail_reply_echoes_the_requested_subtype(self):
+        # The reply must echo the second header field of the request: the studied
+        # build used 64, this deployment uses 256 (captured from the official
+        # client: request (89, 0x100, 0, 0) -> reply (43, 0x100, 0, n) + JPEG).
         jpeg = b'\xff\xd8test\xff\xd9'
-        reply = thumbnail_reply(dict(command=89, kind=64), jpeg)
-        self.assertEqual(struct.unpack_from('<IIIII', reply), (24, 43, 64, 0, 8))
-        self.assertEqual(reply[20:], jpeg)
+        for subtype in (64, 256):
+            reply = thumbnail_reply(dict(command=89, kind=subtype), jpeg)
+            self.assertEqual(struct.unpack_from('<IIIII', reply), (24, 43, subtype, 0, 8))
+            self.assertEqual(reply[20:], jpeg)
         self.assertIsNone(thumbnail_reply(dict(command=25, kind=64), jpeg))
-        self.assertIsNone(thumbnail_reply(dict(command=89, kind=128), jpeg))
+        self.assertIsNone(thumbnail_reply(dict(command=89, kind=64), b''))
 
     def test_login_has_utf16_byte_length_and_management_header(self):
         packet = login_packet('PC', '同学', '02:00:00:00:00:01', '192.0.2.20',

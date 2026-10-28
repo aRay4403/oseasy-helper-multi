@@ -253,8 +253,16 @@ def handler_for(state):
     return Handler
 
 
-def multicast_group(teacher):
+def multicast_group(teacher, override=None):
     """Address convention observed in the studied stream and used by the earlier wrapper."""
+    if override:
+        try:
+            addr = int(ipaddress.ip_address(str(override)))
+        except ValueError:
+            raise SystemExit(f"--mcast-group 不是合法 IPv4 地址：{override!r}")
+        if not 0xE0000000 <= addr <= 0xEFFFFFFF:
+            raise SystemExit(f"--mcast-group 不在组播段 224.0.0.0~239.255.255.255：{override!r}")
+        return str(ipaddress.ip_address(addr))
     octets = ipaddress.IPv4Address(teacher).packed
     return f'229.1.{octets[2]}.{octets[3]}'
 
@@ -273,7 +281,7 @@ def service(args, stop=None, emit=None):
             udp.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
             udp.bind(('0.0.0.0', args.udp_port))
             udp.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                           socket.inet_aton(multicast_group(args.teacher)) + socket.inet_aton(args.local))
+                           socket.inet_aton(multicast_group(args.teacher, getattr(args, 'mcast_group', None))) + socket.inet_aton(args.local))
             udp.settimeout(0.1)
             server = ThreadingHTTPServer(('127.0.0.1', args.http_port), handler_for(state))
             server.daemon_threads = True
@@ -282,7 +290,7 @@ def service(args, stop=None, emit=None):
             url = f'http://127.0.0.1:{server.server_port}/live.ts'
             print(url, flush=True)
             emit('video_listening', url=url, udp_port=args.udp_port,
-                 group=multicast_group(args.teacher), local=args.local)
+                 group=multicast_group(args.teacher, getattr(args, 'mcast_group', None)), local=args.local)
             print('Waiting for a complete H.264 keyframe. Ctrl+C stops.', file=sys.stderr, flush=True)
             def consume():
                 try:

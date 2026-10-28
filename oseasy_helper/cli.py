@@ -43,7 +43,7 @@ def mac_address(value):
 
 def parser():
     root = argparse.ArgumentParser(
-        prog="oseasy-helper", description="Receive classroom video/files; manage the local student service.")
+        prog="oseasy-helper", description="Receive classroom video; manage the local student service.")
     commands = root.add_subparsers(dest="command", required=True)
     live = commands.add_parser("video", help="Expose a local MPEG-TS URL (Ctrl+C stops)",
         description="Reassemble UDP H.264 and serve http://127.0.0.1:17778/live.ts. "
@@ -51,28 +51,43 @@ def parser():
     live.add_argument("--teacher", type=ipv4, required=True,
                       help="Teacher's source IPv4; multicast group is derived automatically")
     live.add_argument("--local", type=ipv4, required=True, help="IPv4 address of your classroom-facing adapter")
+    live.add_argument("--mcast-group", default=None,
+                      help="Override the multicast group (default: derived 229.1.<3rd>.<4th> "
+                           "from --teacher). Some classrooms use a different rule, e.g. "
+                           "channel 12 was observed using 229.9.61.65")
     live.add_argument("--udp-port", type=port, default=7778, help="Destination UDP port (default: 7778)")
     live.add_argument("--http-port", type=port, default=17778, help="Local playback port (default: 17778)")
     for command in ('student', 'client'):
-        login = commands.add_parser(command, help=("Login, video and files in one process" if command == 'student'
-                                                   else "Login and file receiver"),
-            description="Receive classroom broadcasts/files with management reconnection. "
-                        "Default thumbnails are a fixed MOCK test image; teacher online status requires field validation.")
+        login = commands.add_parser(command, help=("Login and video in one process" if command == 'student'
+                                                   else "Login and answer the teacher's thumbnail request"),
+            description="Login to the teacher console and answer its screen-thumbnail request "
+                        "(that is what makes the seat show up as online). Classroom broadcasts are "
+                        "played by a separate window. Files pushed by the teacher are NOT received "
+                        "here — use the official student client for that.")
         login.add_argument("--teacher", type=ipv4, required=True)
         login.add_argument("--local", type=ipv4, required=True)
         login.add_argument("--port", type=port, default=9003)
-        login.add_argument("--receive-dir", default="received",
-                       help="Receiving directory (default: received)")
-        login.add_argument("--node-port", type=port, default=8555)
-        login.add_argument("--data-port", type=port, default=9100)
         login.add_argument("--mock-thumbnail", action=argparse.BooleanOptionalAction, default=True,
-                           help="Reply with a fixed MOCK test image (default: enabled)")
+                           help="Answer the teacher's thumbnail request (default: enabled)")
+        login.add_argument('--thumbnail-source', choices=('screen', 'mock'), default='screen',
+                           help="Thumbnail content: a real desktop grab (default) or the bundled "
+                                "MOCK/TEST image")
+        login.add_argument('--thumbnail-ffmpeg',
+                           help="ffmpeg used for the desktop grab (default: the OsEasy bundled one)")
+        login.add_argument('--thumbnail-width', type=int, default=None,
+                           help="Thumbnail width in pixels (default: 320, ~6 KB like the official client)")
+        login.add_argument('--thumbnail-quality', type=int, default=None,
+                           help="JPEG quality 2-31, lower is smaller (default: 9)")
         login.add_argument('--video', dest='with_video', action=argparse.BooleanOptionalAction,
                            default=(command == 'student'), help='Serve video at a local playback URL')
         login.add_argument('--udp-port', type=port, default=7778)
         login.add_argument('--http-port', type=port, default=17778)
+        login.add_argument('--mcast-group', default=None,
+                           help="Override the multicast group (default: derived "
+                                "229.1.<3rd>.<4th> from --teacher). Some classrooms use a "
+                                "different rule, e.g. channel 12 was observed using 229.9.61.65")
         login.add_argument('--reconnect-delay', type=positive_seconds, default=5,
-                           help='Delay between management/node retries (default: 5 seconds)')
+                           help='Delay between management retries (default: 5 seconds)')
         login.add_argument('--management-idle-timeout', type=positive_seconds, default=60,
                            help='Reconnect after this many seconds with no management data (default: 60)')
         login.add_argument('--once', action='store_true', help='Exit after management disconnect/failure')

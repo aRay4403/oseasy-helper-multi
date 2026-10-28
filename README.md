@@ -1,170 +1,138 @@
-# oseasy-helper
+# 噢易教室助手 · 多教室版
 
-用于噢易多媒体网络教室的 Python CLI，基于 10.9.0.4820 版本研究：
+在 [lihaoze123/oseasy-helper](https://github.com/lihaoze123/oseasy-helper) 之上加的一层
+「多教室启动器」：**一天跑好几间机房，双击一个 bat 选教室就能上课**。
 
-- `student`：一个进程完成登录、测试缩略图应答、广播视频输出和文件接收。
-- `client`：登录、目录查询和文件接收；可用 `--video` 开启广播输出。
-- `video`：接收课堂广播，输出供 mpv / VLC 播放的视频流地址。
-- `control`：查询、挂起、恢复或临时启停本机官方学生端。
+原版每次运行都要手写两个地址（教师机 IP、本机网卡 IP），换教室全得改。
+这里把教室写进配置文件，选一下自动切 —— 包括**本机网卡 IP**（很多机房的网口是
+「端口 + IP 绑定」的静态地址，不跟着改根本连不上）。
 
-要求 Python 3.10+，登录、视频和收件支持 Linux / Windows；`control` 仅支持 Windows。使用 uv 管理环境，不安装驱动或自启项。
+> 原项目的 CLI 能力（`student` / `client` / `video` / `control`）都还在。
+> 原版说明见 [docs/UPSTREAM-README.md](docs/UPSTREAM-README.md)，
+> 协议研究见 [docs/PROTOCOL.md](docs/PROTOCOL.md)。
 
-## 安装与帮助
+## 它解决什么
 
-在仓库目录运行：
-
-```powershell
-uv sync --locked
-uv run oseasy-helper -h
-```
-
-各子命令可通过 `-h` 查看参数：
-
-```powershell
-uv run oseasy-helper client -h
-uv run oseasy-helper student -h
-uv run oseasy-helper video -h
-uv run oseasy-helper control -h
-```
-
-以下示例中的 `--teacher` 替换为教师机 IPv4，`--local` 替换为本机课堂网卡 IPv4。
-
-## 合并学生端
-
-```bash
-uv run oseasy-helper student --teacher 10.115.4.137 --local 10.115.1.54
-```
-
-以上是测试机的地址示例；在其他机器运行时，必须将 `--local` 改为该机器课堂网卡的 IPv4。保持终端运行，在播放器中打开输出的 `http://127.0.0.1:17778/live.ts`：
-
-```bash
-mpv http://127.0.0.1:17778/live.ts
-```
-
-在外层 Nix 项目目录可以用轻量环境启动：
-
-```bash
-nix develop .#helper -c uv run --project oseasy-helper oseasy-helper student --teacher 10.115.4.137 --local 本机IPv4
-```
-
-`student` 默认开启视频和固定 MOCK 测试缩略图；`--no-video`、`--no-mock-thumbnail` 可分别关闭。视频初次绑定失败时记录 `video_unavailable`，登录和收件仍继续；通过 `--http-port` 避免已有播放器服务的端口冲突。程序只提供播放 URL，不自动打开窗口。
-
-登录默认使用本机计算机名、用户名和指定网卡的 MAC。可用 `--name`、`--user`、`--mac` 指定身份字段，适用于教师端座位列表需要与原配置一致的环境。字段不会自动从官方安装或教师端读取，也不伪造其他学生的身份。
-
-管理连接断开或连续 60 秒无管理数据后，默认等待 5 秒重新连接并发送登录，文件监听和视频输出保持运行。`--reconnect-delay` 修改管理及文件节点的重试间隔；`--management-idle-timeout` 修改管理读超时；`--once` 在管理连接失败或断开后退出。退出用 Ctrl+C，不修改系统自启。
-
-## 客户端
-
-退出官方学生端后运行：
-
-```powershell
-uv run oseasy-helper client --teacher 203.0.113.10 --local 192.0.2.20 --mock-thumbnail
-```
-
-一个进程同时处理管理连接、目录查询、文件任务和文件接收，无需单独启动文件监听器。程序使用本机名称、当前用户名及指定网卡的 MAC/IP 发送登录报文。它不执行远程键鼠控制、截图、启动程序或上传文件的指令，也不会自动停止官方学生端。
-
-默认在教师请求缩略图时回传一张标有 MOCK/TEST 的固定 64×64 图片，不读取桌面；`--no-mock-thumbnail` 可关闭。既往现场已确认教师界面可以显示该图，关闭时曾仍显示未登录/离线。缩略图发送成功不等于教师端界面已确认在线。
-
-### 收件目录
-
-默认保存到 `received/<本次运行目录>/transfer-*/`。更改收件目录：
-
-```powershell
-uv run oseasy-helper client --teacher 203.0.113.10 --local 192.0.2.20 --mock-thumbnail --receive-dir D:\Classroom\Received
-```
-
-目录查询只向教师端提供指定的收件目录，不枚举磁盘或子目录。实际文件保存在 `received/<本次运行目录>/transfer-*/`（或指定的收件目录下），不按教师指定的任意绝对路径写入。已确认一次真实课堂文件落盘。
-
-每次运行的 `events.jsonl` 保存管理和收件事件，终端也会显示主要事件：
-
-| 事件 | 含义 |
+| 问题 | 这里的做法 |
 | --- | --- |
-| `listening` | 本地文件接收端口已绑定 |
-| `login_sent` | 登录报文已发出，不代表教师端已认可在线 |
-| `mock_thumbnail_sent` | 固定缩略图已发出 |
-| `receive_directory_sent` | 收件目录应答已发出 |
-| `node_connected` / `node_ready` | 文件节点已连接 / 就绪消息已发出 |
-| `node_retry` / `management_retry` | 文件节点 / 管理连接失败，按配置间隔重试 |
-| `receive_task` | 收到文件任务；`matches_listener` 仅与默认接收端口比较 |
-| `task_listener_ready` | 已为任务登记接收监听及发送节点，动态端口任务以此事件为准 |
-| `task_rejected` / `task_expired` | 任务地址错误、端口不可绑定、端口任务冲突 / 60 秒内未建立数据连接 |
-| `peer_rejected` | 来源不匹配任务、没有任务或同一任务已被连接占用 |
-| `data_connected` / `file_begin` | 数据连接到达 / 开始接收文件 |
-| `file_saved` / `transfer_complete` | 文件写入完成 / 已处理整次传输结束报文 |
-| `node_report_sent` | 已向文件节点发送成功结果、实际保存目录及重新就绪消息；不代表教师界面已确认 |
-| `node_report_skipped` | 文件已收完，但没有当前连接的匹配任务，未发送完成报告 |
-| `data_error` / `file_partial` | 接收失败；未完成文件保留为 `.part` |
-| `video_listening` / `video_receiving` | 视频服务启动 / 已收到完整关键帧 |
-| `video_unavailable` / `video_error` | 视频启动失败 / 接收线程失败，查看具体错误 |
+| 换教室要改教师机 IP | 写进 `classrooms.conf`，选教室自动改 `skin\core.conf` 的 `/RemoteIp/` |
+| 换教室要改本机 IP | 配置里写 `local-ip=`，选教室时一起改，改完 ping 网关验证，不通自动回滚 |
+| 教师机 IP 每节课都不一样 | 这类教室标 `manual-ip=1`，选到时手填，或者直接回车扫网段找 |
+| 老师广播了这边一片黑 | 组播组自动探测（各教室不一样，公式经常猜错） |
+| 教师端显示「离线」 | 修了原版缩略图应答的字段错误（见下文） |
+| 老师点进来看屏幕 | 交给官方 `MmcStudent.exe`，我们只管热键 |
 
-文件接收接受指定教师 IP，或当前文件任务指定的发送节点 IP。任务数据端口会在 `--local` 网卡上动态绑定；任务中指定其他本机地址会被拒绝。默认端口也可接收教师直接发送的数据，但没有关联任务时不发送节点完成报告。其他端口必须匹配当前任务。
+## 两条路线
 
-最多同时保留 8 个监听端口；空闲动态端口可回收。同一端口只关联一个任务，重复任务不会替换正在接收的身份，冲突任务记录 `task_rejected`。不同端口可独立接收，不支持同一端口多任务排队、断点续传或本机继续向其他学生中继。若任务或节点连接已经替换，旧数据连接完成后不向新任务报成功。
+| | **官方学生端模式（推荐）** | **自研客户端模式** |
+| --- | --- | --- |
+| 谁在连教师机 | 官方 `MmcStudent.exe` | 本项目的 `oseasy_helper client` |
+| 教师端「在线」状态 | 官方，天然正常 | 靠我们回缩略图 |
+| 老师点进来查看屏幕 | ✓ 官方拉 `ScreenSender.exe` 上行 | ✗ 只收不发，做不到 |
+| 换教室 | 改 `skin\core.conf` 并重启学生端 | 不用改，脚本带参数连 |
+| 热键 | ✓ | ✓ |
 
-不覆盖已有文件、不自动执行文件。每条数据连接最多接收 8 GiB、10000 个条目，连续 60 秒没有数据会结束；客户端继续等待后续传输。失败传输保留 `.part` 并重新声明就绪，原厂失败状态码未确认，因此不编造失败报告。
+没有特殊理由就用官方模式 —— 连接这件事交回官方，我们只补官方没有的热键。
+自研模式留着排查问题用（能看协议细节、能自己控制缩略图内容）。
 
-如果教师端一直显示正在发送，先检查 `file_saved` 和对应保存目录。内容落盘与教师端完成状态是两条链路；新版会在数据结束确认后，通过 8555 连接发送完成报告。更新后需重启 `client` 才会使用新版逻辑。
+## 快速开始
 
-默认使用教师 TCP 9003 管理连接、教师 TCP 8555 文件任务连接及本机 TCP 9100 数据监听，分别可用 `--port`、`--node-port`、`--data-port` 修改。
+1. 装好噢易学生端。
+2. 双击 `setup.bat` 建 Python 环境（`.venv` + psutil）。
+3. 把 `classrooms.conf.example` 复制成 `classrooms.conf`，按里面的说明填自己的教室。
+4. 上课：双击 **`选教室.bat`**，菜单里点一下。
 
-按 Ctrl+C 停止全部本程序线程；管理连接断开时自动重连。不要同时运行官方学生端和本客户端，以免重复登录或占用接收端口。
-
-## 视频
-
-```powershell
-uv run oseasy-helper video --teacher 203.0.113.10 --local 192.0.2.20
+```
+  噢易课堂 · 选择教室
+  ------------------------------------------------------------
+   1) 5-213    10.140.16.170        本机 10.140.16.234
+   2) 5-214    10.140.17.170        本机 10.140.17.234
+   3) 5-215    10.140.18.170        本机 10.140.18.234
+   4) 206      10.140.24.170        本机 10.140.24.234   ← 本机所在
+   5) 频道12   10.144.61.x          本机 手填   [教师机 IP 手动填]
+  ------------------------------------------------------------
+  选哪个教室？（直接回车 = 206）
 ```
 
-组播地址由教师 IP 自动推导，无需填写。启动后输出：
+## 教室配置
 
-```text
-http://127.0.0.1:17778/live.ts
+```
+# 教室名 = 教师机IP [, local-ip=本机IP] [...]
+5-214    = 10.140.17.170, local-ip=10.140.17.234
+206      = 10.140.24.170, local-ip=10.140.24.234
+频道12   = 10.144.61.65, manual-ip=1, ip-prefix=10.144.61., local-ip=ask
 ```
 
-保持进程运行，在 mpv 或 VLC 中打开该地址：
-
-```powershell
-mpv http://127.0.0.1:17778/live.ts
-```
-
-`video` 重组私有 UDP 分片中的 H.264，再封装为 MPEG-TS；画面解码由播放器完成。没有窗口或 FFmpeg 依赖。默认 UDP 端口为 7778、HTTP 端口为 17778，可用 `--udp-port`、`--http-port` 修改。HTTP 只监听本机。
-
-可以与未开启视频的 `client` 同时运行；`student` 已包含此功能。教师未广播或尚未收到完整关键帧时，播放器会等待；输出地址本身不代表已收到视频。按 Ctrl+C 停止。目前不支持音频或丢包重传。
-
-## 官方学生端管理
-
-```powershell
-uv run oseasy-helper control status
-uv run oseasy-helper control suspend
-uv run oseasy-helper control resume
-uv run oseasy-helper control stop
-uv run oseasy-helper control start
-```
-
-| 操作 | 行为 |
+| 配置项 | 说明 |
 | --- | --- |
-| `status` | 只读查询 MMPC 服务和相关进程 |
-| `suspend` / `resume` | 挂起 / 恢复安装目录内的 Student、MmcStudent、MultiClient |
-| `stop` | 停止 MMPC 并结束上述学生端进程 |
-| `start` | 启动 MMPC；学生端未自动出现时需通过官方入口启动 |
+| 第一个 IP | 教师机地址（必填） |
+| `local-ip=` | 这间教室本机网卡该用的地址。不写就问你，回车默认「尾号不变」 |
+| `local-ip=ask` | 每次问（教师机 IP 也不固定的教室） |
+| `gateway=` | 网关，默认 `教师机网段.1` |
+| `manual-ip=1` | 这间教室的教师机 IP 每次不一样，选到时手填 |
+| `ip-prefix=` | 配合 `manual-ip`，限定只能填这个网段的地址 |
+| `mcast-group=` | 固定组播组（一般不用写，会自动探测） |
 
-除 `status` 外需在管理员终端执行。挂起不会停止 MMPC 或 DeviceControl；它会同时暂停学生端的心跳和任务处理，可能导致教师端判定离线。此做法不保证官方客户端持续在线或解除已经生效的控制。
+## 热键
 
-这些操作不修改服务启动类型、不删除文件、不操作驱动，也不会自动提权。停止是临时的，其他组件或系统重启可能再次启动官方学生端。
+| 热键 | 行为 |
+| --- | --- |
+| `Alt+U` | 窗口化广播（已经全屏则关掉按窗口重开） |
+| `Ctrl+Alt+F` | 全屏广播 |
+| `Alt+K` | 关闭广播窗口 |
+| `Ctrl+C` | 退出脚本（不影响已启动的学生端） |
 
-## 验证与研究文档
+热键接管**所有** `MultiRenderWindowClass` 窗口，包括官方学生端自己拉起来的播放器。
 
-已完成本机文件协议互通、合并客户端的登录、收件、完成报告和断线清理测试；固定测试缩略图已在教师界面显示，真实课堂文件已成功落盘。完成报告与官方组件本机捕获报文一致，但教师界面完成状态、目录选择和长期在线仍需实测。
+## 命令行
 
-本轮在本地 Linux（Python 3.14）和测试机 `10.115.1.54`（Python 3.13）通过 45 项自动测试，包括管理重连期间继续收件、任务指定端口、任务发送节点、非任务来源拒绝、缩略图和目录回复、UDP 到 HTTP 的视频输出、端口回收、管理静默超时及 Ctrl+C 清理。测试中的人工 NAL 仅验证结构；另从真实广播取得 TS 样本并成功解码为 1920×1080 画面。真实教师端验证与未完成项见 [COMPATIBILITY.md](docs/COMPATIBILITY.md)。
-
-```powershell
-uv run python -m unittest discover -s tests -v
+```
+python switch.py                     # 弹菜单选教室
+python switch.py 206                 # 直接切某间
+python switch.py 频道12              # 会提示填教师机 IP
+python switch.py --list              # 只列教室
+python switch.py --net-status        # 看本机网卡配置
+python switch.py --restore-net       # 还原上次改之前的网卡配置
+python switch.py --no-net            # 这次不动网卡
+python official.py --status          # 只读：配置 / 进程 / 播放器窗口
 ```
 
-测试使用人工数据和本机连接，不执行官方客户端控制启停。协议与研究证据见：
+## 踩过的坑（都写进代码了）
 
-- [HANDOFF.md](HANDOFF.md)：登录、缩略图、文件链路、控制范围和待验证事项。
-- [docs/PROTOCOL.md](docs/PROTOCOL.md)：视频分片、H.264 重组与 MPEG-TS 输出细节。
+- **教师机 IP 存两处，`user.conf` 优先级更高**：`skin\core.conf` 的 `/RemoteIp/` 是全局配置，
+  `%APPDATA%\Mmc\user.conf` 的 `/MutiTeacherIp/` 是本地覆盖，而且学生端每次登录成功都会
+  用老师下发的参数**重建**它。所以换教室只改 core.conf 不够，必须把 user.conf 删掉。
+- **`/MD5/` 是整份配置的校验位，手算不出来**：字母表是 16 个自定义符号
+  （`6789NPQRSTUVWXYZ`，是 hex 的替换表），md5/sha1/sha256 的各种变体都试过不中。
+  唯一可靠的生成方式是让官方配置工具自己重算 —— 脚本会启动它、给它窗口发一条点击消息点「保存」。
+  改完缓存进 `configs/`，下次进同一间教室 2 秒切完。
+- **组播组不是公式**：`229.1.<教师机第3段>.<第4段>` 只是兜底。实测同一间教室先后出现过
+  `229.9.61.65` 和 `229.1.61.65`，另一个机房是 `229.9.24.170`（公式会算成 `229.1.24.170`）。
+  所以开窗前会同时加入多个候选组数包，谁有流用谁。
+- **本机网卡可能是「端口 + IP 绑定」的静态地址**：改成同网段另一个地址网关立刻不通。
+  所以每间教室的本机 IP 是固定的，脚本改完必须 ping 网关验证，不通就自动回滚。
+- **原版缩略图应答有 bug**：教师每 5 秒发 `cmd=89` 要缩略图，第二个字段是请求值
+  （实测是 `0x100`），原代码写死要求等于 `64`，于是一次都没应答 → 教师端判离线。
+  现在原样回显请求值，用 ffmpeg gdigrab 抓真实桌面应答。
+- **官方播放器不接受外部改尺寸**：`SetWindowPos` / `SW_MAXIMIZE` 全无效，
+  全屏只能靠启动参数 `#fullscreen#:1`，所以「切全屏」是重启播放窗口实现的。
 
-本项目实现的是所研究版本的部分协议，不是完整的官方客户端替代品。
+## 目录
+
+| 文件 | 作用 |
+| --- | --- |
+| `选教室.bat` / `switch.py` | **推荐入口**：选教室 → 改本机 IP + 教师机 IP → 起学生端 → 挂热键 |
+| `上课.bat` / `official.py` | 按本机网段自动认教室，直接上课 |
+| `后台监听.bat` / `watch.py` | 自研客户端模式：后台登录（显示在线）+ 热键 |
+| `广播窗口.bat` / `broadcast.py` | 单独开一个广播窗口（官方 ScreenRender，坏了降级 ffmpeg） |
+| `netcfg.py` | 改网卡 IP 的小工具（读配置 / 设静态 / 还原） |
+| `一键启动.bat` / `main.py` | 统一菜单，三条路线都在里面 |
+| `start.py` / `start.bat` | oseasy-helper 路线（自实现协议） |
+| `native.py` / `native.bat` | 官方学生端原生功能（广播 / 提交作业 / 状态） |
+| `oseasy_helper/` | 原项目代码（改过 1 处：缩略图应答） |
+| `使用说明.md` | 完整的中文说明书（排查问题看这个） |
+
+## 致谢
+
+原项目 [lihaoze123/oseasy-helper](https://github.com/lihaoze123/oseasy-helper)，MIT License。
+本仓库在原项目基础上增加了多教室封装层，协议实现部分基本未改动（除缩略图应答那一处修复）。

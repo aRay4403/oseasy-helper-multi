@@ -35,12 +35,10 @@ class CliTests(unittest.TestCase):
             main(['video', '--teacher', '203.0.113.10', '--local', '192.0.2.20', '--http-port', '65536'])
         self.assertEqual(result.exception.code, 2)
 
-    def test_client_includes_file_parameters_without_control(self):
+    def test_client_defaults(self):
         with patch('oseasy_helper.cli.client.run') as receive, patch('oseasy_helper.cli.control.run') as control:
             code = main(['client', '--teacher', '203.0.113.10', '--local', '192.0.2.20'])
         self.assertEqual(code, 0)
-        self.assertEqual(receive.call_args.args[0].data_port, 9100)
-        self.assertEqual(receive.call_args.args[0].node_port, 8555)
         self.assertTrue(receive.call_args.args[0].mock_thumbnail)
         self.assertFalse(receive.call_args.args[0].with_video)
         control.assert_not_called()
